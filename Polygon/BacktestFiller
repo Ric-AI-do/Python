@@ -1,0 +1,233 @@
+# Imports
+import pandas as pd
+from polygon import RESTClient
+import json
+import datetime
+from Tdays2023 import Tdays
+
+
+tickers = ['SXTC',
+'YCBD',
+'SNTG',
+'ADTX'
+           ]
+initialDate = '2023-12-29'
+
+inicode = 0
+for Td in Tdays:
+    if initialDate == Td:
+        inicode = inicode + 1
+    elif initialDate > Td:
+        Tdcode = 0
+
+if inicode == 0:
+    print('The day IS NOT a trading day of 2023 calendar year')
+    raise SystemExit  # Stops the system
+
+for t in tickers:
+    print('Writing....', t)
+    Ticker = t
+    Date = initialDate
+    marketFrom = Date + ' 9:30'
+    marketFrom = datetime.datetime.strptime(marketFrom, '%Y-%m-%d %H:%M')
+    marketFrom = marketFrom.timestamp() * 1000.00
+
+    marketTo = Date + ' 20:00'
+    marketTo = datetime.datetime.strptime(marketTo, '%Y-%m-%d %H:%M')
+    marketTo = marketTo.timestamp() * 1000.00
+
+    preMarketfrom = Date + ' 4:00'
+    preMarketfrom = datetime.datetime.strptime(preMarketfrom, '%Y-%m-%d %H:%M')
+    preMarketfrom = preMarketfrom.timestamp() * 1000.00
+
+    preMarketTo = Date + ' 9:29'
+    preMarketTo = datetime.datetime.strptime(preMarketTo, '%Y-%m-%d %H:%M')
+    preMarketTo = preMarketTo.timestamp() * 1000.00
+
+    dayfrom = Date + ' 9:30'
+    dayfrom = datetime.datetime.strptime(dayfrom, '%Y-%m-%d %H:%M')
+    dayfrom = dayfrom.timestamp() * 1000.00
+
+    dayto = Date + ' 16:00'
+    dayto = datetime.datetime.strptime(dayto, '%Y-%m-%d %H:%M')
+    dayto = dayto.timestamp() * 1000.00
+
+    client = RESTClient(api_key="TnxAITqX0cnjpPKcCVwV1YD1Q_recNPf")
+
+    # Getting Day bars from 9:30 to 20:00
+    market = client.get_aggs(Ticker, 1, timespan='day', from_=int(marketFrom), to=int(marketTo), raw=True, adjusted=False)
+    market = json.loads(market.data)
+    market = market['results']  # ->> showing only results column
+    df = pd.DataFrame(market)
+
+    # Calculating HOD and LOD times-----------------------------
+
+    marketByMinute = client.get_aggs(Ticker, 1, timespan='minute', from_=int(dayfrom), to=int(dayto), raw=True, adjusted=False)
+    marketByMinute = json.loads(marketByMinute.data)
+    marketByMinute = marketByMinute['results']  # ->> showing only results column
+    df3 = pd.DataFrame(marketByMinute)
+
+    hodTime = df3['t'].where(df3['h'] == max(df3['h']))
+    hodTime = hodTime.dropna()
+    hodTimeIndexValues = hodTime.index.values
+    hodTimIndexValues = min(hodTimeIndexValues) # Selecting the lower location in case the HOD happens more than once
+    hodTime = (hodTime[hodTimIndexValues])
+    finaldate = datetime.datetime.fromtimestamp(hodTime / 1000.00)
+    finaldate = finaldate.strftime("%H:%M:%S")
+
+    lodTime = df3['t'].where(df3['l'] == min(df3['l']))
+    lodTime = lodTime.dropna()
+
+    lodTimeIndexValues = lodTime.index.values
+    lodTimeIndexValues = min(lodTimeIndexValues) # Selecting the lower location in case the LOD happens more than once
+    lodTime= (lodTime[lodTimeIndexValues])
+
+
+    FinalLODtime = datetime.datetime.fromtimestamp(lodTime / 1000.00)
+    FinalLODtime = FinalLODtime.strftime("%H:%M:%S")
+
+    # Adding them to  df
+    df['HODtime'] = finaldate
+    df['LODtime'] = FinalLODtime
+
+    # Calculating PMH and PMVol -----------------------------
+
+    premarket = client.get_aggs(Ticker, 1, timespan='minute', from_=int(preMarketfrom), to=int(preMarketTo), raw=True, adjusted=False)
+    premarket = json.loads(premarket.data)
+
+
+       #in case polygon has no data for this date in PM
+
+    if premarket['resultsCount'] == 0:
+        pmh = 0
+        pml = 0
+        pmT = 0
+
+    else:
+        premarket = premarket['results']
+
+
+
+        df2 = pd.DataFrame(premarket)
+        pmh = max(df2['h'])
+        pml = min(df2['l'])
+        pmT = sum(df2['v'])
+
+        #Calculating PMH time
+        pmhTime = df2['t'].where(df2['h'] == max(df2['h']))
+        pmhTime = pmhTime.dropna()
+        pmhTimeIndexValues = pmhTime.index.values
+        pmhTimeIndexValues = max(pmhTimeIndexValues) # Selecting the lower location in case the HOD happens more than once
+        pmhTime = (pmhTime[pmhTimeIndexValues])
+
+        Finalpmhtime = datetime.datetime.fromtimestamp(pmhTime / 1000.00)
+        Finalpmhtime = Finalpmhtime.strftime("%H:%M:%S")
+
+        # Searching for the time of break of PreMarket Hi based in close price
+        pmhBreak = df3['t'].where(df3['h'] >= pmh)
+        pmhBreak = pmhBreak.dropna()
+        if pmhBreak.empty==False:
+            pmhBreak = min(pmhBreak)
+            pmhBreakMS = pmhBreak
+
+            pmhBreak = datetime.datetime.fromtimestamp(pmhBreak / 1000.00)
+            pmhBreak = pmhBreak.strftime("%H:%M:%S")
+            pmhBreakHigh = df3['h'].where(df3['t'] == int(pmhBreakMS))
+            pmhBreakHigh = pmhBreakHigh.dropna()
+            pmhBreakHigh = float(pmhBreakHigh)
+
+            #print (pmhBreakclose)
+            #raise SystemExit
+
+        else:
+            pmhBreak = 0
+            pmhBreakHigh = 0
+
+
+
+
+   # raise SystemExit
+
+        #pmhBreakTime = df3['t'].where(df3['c'] == pmhBreak)
+        #pmhBreakTime = pmhBreakTime.dropna()
+        #print (pmhBreak)
+        #raise SystemExit
+
+    # Adding them to  df
+    df['PMVol'] = pmT
+    df['PMH'] = pmh
+    df['PML'] = pml
+    df['Ticker'] = Ticker
+    df['Date'] = Date
+    df['PMHtime'] = Finalpmhtime
+    df['PMHbreak'] = pmhBreak
+    df['PMHbreak_H'] = pmhBreakHigh
+    # Calculating Previous Day Close -----------------------------
+
+    Tdcode = 0
+
+    dfPTD = pd.DataFrame(Tdays)
+    dfPTD = dfPTD.where(dfPTD == Date)
+    dfPTD = dfPTD.dropna()
+
+    dfPTD2 = pd.DataFrame(Tdays)
+    indexValue = dfPTD.index.values
+    prevDay = int(indexValue) - int(1)
+    previousFrom = dfPTD2.iloc[prevDay, 0]
+    previousFrom = previousFrom + ' 9:30'
+    previousFrom = datetime.datetime.strptime(previousFrom, '%Y-%m-%d %H:%M')
+    previousTo = dfPTD2.iloc[prevDay, 0] + ' 20:00'
+    previousTo = datetime.datetime.strptime(previousTo, '%Y-%m-%d %H:%M')
+
+    previous = client.get_aggs(Ticker, 1, timespan='day', from_=previousFrom, to=previousTo, raw=True, adjusted=False)
+    previous = json.loads(previous.data)
+    prevCloseData = 1
+    if previous['resultsCount'] == 0:
+        df['PrevC'] = 0
+    else:
+        previous = previous['results']  # ->> showing only results column
+        df4 = pd.DataFrame(previous)
+        prevCloseData = df4['c']
+        # Adding it to df
+        df['PrevC'] = prevCloseData
+
+    # Asking for Market Cap
+    TickerDetails = client.get_ticker_details(Ticker, date=Date, raw=True)
+    TickerDetails = json.loads(TickerDetails.data)
+
+    TickerDetails = TickerDetails['results']
+    marketcap = int()
+    try:
+        marketcap = TickerDetails['market_cap']
+    except :
+        marketcatp = 0
+    outstanding = TickerDetails['share_class_shares_outstanding']
+
+
+    # Adding it to df
+    df['MarketCap'] = int(marketcap)
+    df['OS'] = int(outstanding)
+
+
+    # Cleaning DataFrame -------------
+
+    d = {'Date': df['Date'], 'Ticker': df['Ticker'], 'PrevC': df['PrevC'], 'PMH': df['PMH'], 'PMHtime': df['PMHtime'], 'Open': df['o'], 'HOD': df['h'],
+         'HODtime': df['HODtime'], 'LOD': df['l'], 'LODtime': df['LODtime'], 'Close': df['c'], 'PMVol': df['PMVol'],
+         'DAY VOL': df['v'], 'PMHbreak': df['PMHbreak'], 'PMHb_H': df['PMHbreak_H'],  'MarketCap': df['MarketCap'],'O/S': df['OS']}
+
+    Finaldf = pd.DataFrame(d)
+
+
+
+    # Parsing data  from Excel File into a new DF ,appending to Finaldf2 and re-writing the excel file-------------------------
+
+    file = pd.ExcelFile(r'CBL3.xlsx')
+    getDatadf = file.parse('CBL')
+    Finaldf= getDatadf._append(Finaldf,ignore_index=True)
+    #Finaldf= Finaldf._append(getDatadf,ignore_index=True)
+    Finaldf.to_excel(r'CBl3.xlsx',sheet_name='CBL',index=False)
+    #with pd.ExcelWriter(r'CBL.xlsx') as writer:
+        #Finaldf.to_excel(writer, sheet_name='CBL',index=False)
+        #Finaldf.to_excel(writer, sheet_name='CBL',index=False,startcol=0,startrow=2,header=False)
+    #    onlyDay.to_excel(writer,sheet_name='onlyDay')
+    #    addingmin.to_excel(writer,sheet_name='togehter',freeze_panes=[1,2])
