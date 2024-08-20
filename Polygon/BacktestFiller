@@ -5,12 +5,13 @@ import json
 import datetime
 from Tdays2023 import Tdays
 
-
+#Tickers to be used (Change manually)
 tickers = ['SXTC',
 'YCBD',
 'SNTG',
 'ADTX'
            ]
+#Cahnge Date Manually 
 initialDate = '2023-12-29'
 
 inicode = 0
